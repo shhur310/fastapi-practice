@@ -5,3 +5,7 @@ from pydantic import BaseModel, Field
 class UserCreateRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=10)
     job: str
+
+# 사용자 데어터를 수정할 때 데이터 형식
+class UserUpdateRequest(BaseModel):
+    job: str
