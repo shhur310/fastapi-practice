@@ -11,8 +11,16 @@ engine = create_engine(DATABASE_URL, echo=True)
 # Session: 한 번의 DB 요청-응답 단위
 SessionFactory = sessionmaker(
     bind = engine,
-    # 데이터를 어떻게 다룰지
+    # 데이터를 어떻게 다룰지를 조정하는 옵션
     autocommit=False,
     autoflush=False,
     expire_on_commit=False,
 )
+
+# SQLAlchemy 세션을 관리하는 함수
+def get_session():
+    session = SessionFactory()
+    try:
+        yield session
+    finally:
+        session.close()
