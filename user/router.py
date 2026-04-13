@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Path, Query, status, HTTPException, Depends
 from sqlalchemy import select, delete
-from database.connection import SessionFactory, get_session
+from database.connection import get_session
+from database.connection_async import get_async_session
 from user.models import User
 from user.request import UserCreateRequest, UserUpdateRequest
 from user.response import UserResponse
@@ -17,13 +18,13 @@ router = APIRouter(tags=["User"])
     status_code=status.HTTP_200_OK,
     response_model=list[UserResponse],
 )
-def get_users_handler(
+async def get_users_handler(
     # Depends: FastAPI에서 의존성(get_session)을 자동으로 실행/주입/정리
-    session = Depends(get_session),
+    session = Depends(get_async_session),
 ):
     # statement = 구문(명령문)
     stmt = select(User) # SELECT * FROM user;
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     users = result.scalars().all() # [user1, user2, user3, ...]
     return users
 
@@ -35,10 +36,10 @@ def get_users_handler(
     summary="사용자 정보 검색 API",
     response_model=list[UserResponse],
 )
-def search_user_handler(
+async def search_user_handler(
     name: str | None = Query(None), 
     job: str | None = Query(None),
-    session = Depends(get_session),
+    session = Depends(get_async_session),
 ): 
     if not name and not job:
         raise HTTPException(
@@ -51,7 +52,7 @@ def search_user_handler(
     if job:
         stmt = stmt.where(User.job == job)
 
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     users = result.scalars().all()
     return users
 
@@ -62,14 +63,14 @@ def search_user_handler(
     summary="단일 사용자 데이터 조회 API",
     response_model=UserResponse,
 )
-def get_users_handler(
+async def get_users_handler(
     user_id: int = Path(..., ge=1),
+    session = Depends(get_async_session),
 ):
-    with SessionFactory() as session:
-        # 예? SELECT * FROM user WHERE id = 42;
-        stmt = select(User).where(User.id == user_id)
-        result = session.execute(stmt)
-        user = result.scalar() # 존재하면 user 객체, 존재하지 않으면 None
+    # 예? SELECT * FROM user WHERE id = 42;
+    stmt = select(User).where(User.id == user_id)
+    result = await session.execute(stmt)
+    user = result.scalar() # 존재하면 user 객체, 존재하지 않으면 None
     
     if not user:
         raise HTTPException(
@@ -86,14 +87,20 @@ def get_users_handler(
     status_code=status.HTTP_201_CREATED, 
     response_model=UserResponse,
 )
-def create_user_handler(body: UserCreateRequest):
+async def create_user_handler(
+    body: UserCreateRequest,
+    session = Depends(get_async_session),
+):
+    
     # context manager를 벗어나는 순간 자동으로 close() 호출
-    with SessionFactory() as session:
-        new_user = User(name=body.name, job=body.job)
-        session.add(new_user)
-        session.commit() # 변경사항 저장
-        session.refresh(new_user) # id, created_at 읽어봄
-        return new_user
+   
+    new_user = User(name=body.name, job=body.job)
+    session.add(new_user)
+    print(new_user.id) # 
+    await session.commit() # 변경사항 저장
+    await session.refresh(new_user) # id, created_at 읽어봄
+    print(new_user.id)
+    return new_user
 
 # 회원 정보 수정 API
 # PUT: 전체 교체(replace)
@@ -104,24 +111,24 @@ def create_user_handler(body: UserCreateRequest):
     summary="회원 정보 수정 API",
     response_model=UserResponse,
 )
-def update_user_handler(
+async def update_user_handler(
     user_id: int,
     body:UserUpdateRequest,
+    session = Depends(get_async_session),
 ):
-    with SessionFactory() as session:
-        stmt = select(User).where(User.id == user_id)
-        result = session.execute(stmt)
-        user = result.scalar()
+    stmt = select(User).where(User.id == user_id)
+    result = await session.execute(stmt)
+    user = result.scalar()
 
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User Not Found",
-            )
-        
-        user.job = body.job
-        session.commit() # user tkdxo(job 변경)를 DB 반영
-        return user    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User Not Found",
+        )
+    
+    user.job = body.job
+    await session.commit() # user tkdxo(job 변경)를 DB 반영
+    return user    
 
 # 회원 삭제 API
 # DELETE /users/{user_id}
@@ -129,8 +136,10 @@ def update_user_handler(
     "/users/{user_id}",
     summary="회원 삭제 API",
     status_code=status.HTTP_204_NO_CONTENT,
+    
 )
-def delete_user_handler(user_id: int):
+async def delete_user_handler(user_id: int):
+    session = Depends(get_async_session),
     # 1) 조회하고, 삭제
     # with SessionFactory() as session:
     #     stmt = select(User).where(User_id == user_id)
@@ -148,7 +157,7 @@ def delete_user_handler(user_id: int):
     #     session.commit()
 
     # 2) 곧바로 삭제
-    with SessionFactory() as session:
-        stmt = select(User).where(User.id == user_id)
-        session.execute(stmt)
-        session.commit()
+    
+    stmt = select(User).where(User.id == user_id)
+    await session.execute(stmt) # 삭제
+    await session.commit()      # 확정
